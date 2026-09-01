@@ -14,6 +14,7 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont, QColor, QBrush, QIcon, QKeySequence, QShortcut
 
 from enc_core import ENCManager, InventoryManager, ENCDatabase, get_db_path, extract_cell_codes
+from pdf_generator import generate_basket_pdf, generate_inventory_pdf
 
 SETTINGS_FILE = "app_settings.json"
 
@@ -146,6 +147,14 @@ QPushButton#btn_export {
 }
 QPushButton#btn_export:hover {
     background-color: #047857;
+}
+QPushButton#btn_export_pdf {
+    background-color: #b91c1c;
+    color: #ffffff;
+    font-weight: bold;
+}
+QPushButton#btn_export_pdf:hover {
+    background-color: #991b1b;
 }
 QPushButton#btn_secondary {
     background-color: #374151;
@@ -432,7 +441,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ENC Cell Manager Pro & Permit Expiry Monitor - ADMIRALTY Edition")
-        self.resize(1240, 780)
+        self.resize(1260, 780)
         
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.ico")
         if os.path.exists(icon_path):
@@ -602,6 +611,12 @@ class MainWindow(QMainWindow):
         self.btn_export_txt.clicked.connect(self.action_export_txt)
         action_bar.addWidget(self.btn_export_txt)
 
+        self.btn_export_pdf = QPushButton("📄 Export PDF Report")
+        self.btn_export_pdf.setObjectName("btn_export_pdf")
+        self.btn_export_pdf.setToolTip("Generate professional, full-color PDF Order Requisition Report")
+        self.btn_export_pdf.clicked.connect(self.action_export_basket_pdf)
+        action_bar.addWidget(self.btn_export_pdf)
+
         self.btn_copy_all = QPushButton("📋 Copy Full Basket")
         self.btn_copy_all.setObjectName("btn_secondary")
         self.btn_copy_all.setToolTip("Copy formatted order basket text with titles and scales to clipboard")
@@ -759,7 +774,7 @@ class MainWindow(QMainWindow):
         kpi_bar.addStretch()
         layout.addLayout(kpi_bar)
 
-        # ACTION TOOLBAR: ADD TO ORDER BASKET & COPY
+        # ACTION TOOLBAR: ADD TO ORDER BASKET & EXPORTS
         action_bar = QHBoxLayout()
         action_bar.setSpacing(6)
 
@@ -801,6 +816,12 @@ class MainWindow(QMainWindow):
         self.btn_inv_copy_cells.setToolTip("Copy inventory cell codes formatted as 'AU130120, AU130150, ...' to clipboard")
         self.btn_inv_copy_cells.clicked.connect(self.action_copy_inventory_cells_only)
         action_bar.addWidget(self.btn_inv_copy_cells)
+
+        self.btn_export_inv_pdf = QPushButton("📄 Export PDF Report")
+        self.btn_export_inv_pdf.setObjectName("btn_export_pdf")
+        self.btn_export_inv_pdf.setToolTip("Generate professional, full-color PDF Permit Audit & Expiry Report")
+        self.btn_export_inv_pdf.clicked.connect(self.action_export_inventory_pdf)
+        action_bar.addWidget(self.btn_export_inv_pdf)
 
         self.btn_export_inv = QPushButton("💾 Export CSV")
         self.btn_export_inv.setObjectName("btn_export")
@@ -965,6 +986,57 @@ class MainWindow(QMainWindow):
             self, "Inventory Cells Copied",
             f"{msg}\n\nFormatted text:\n{formatted[:150]}{'...' if len(formatted) > 150 else ''}"
         )
+
+    # ------------------ PDF EXPORT ACTIONS ------------------
+    def action_export_basket_pdf(self):
+        if not self.manager.items:
+            QMessageBox.warning(self, "Basket Empty", "Order basket is empty. Nothing to export.")
+            return
+
+        vessel = self.manager.ship_info.get("ShipName", "Vessel").strip()
+        date_tag = datetime.datetime.now().strftime("%Y%m%d")
+        default_name = f"enc_order_requisition_{vessel}_{date_tag}.pdf"
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Order Requisition PDF Report", default_name, "PDF Files (*.pdf)"
+        )
+        if file_path:
+            try:
+                generate_basket_pdf(self.manager, file_path)
+                reply = QMessageBox.information(
+                    self, "PDF Report Created",
+                    f"Professional Order Requisition PDF Report successfully generated:\n{file_path}\n\nWould you like to open it now?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    os.startfile(file_path)
+            except Exception as e:
+                QMessageBox.critical(self, "PDF Error", f"Failed to generate PDF: {e}")
+
+    def action_export_inventory_pdf(self):
+        if not self.inventory.items:
+            QMessageBox.warning(self, "Inventory Empty", "No permit data loaded.")
+            return
+
+        vessel = self.manager.ship_info.get("ShipName", "Vessel").strip()
+        date_tag = datetime.datetime.now().strftime("%Y%m%d")
+        default_name = f"enc_permit_inventory_{vessel}_{date_tag}.pdf"
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Permit Inventory PDF Report", default_name, "PDF Files (*.pdf)"
+        )
+        if file_path:
+            try:
+                generate_inventory_pdf(self.inventory, file_path, self.manager.ship_info)
+                reply = QMessageBox.information(
+                    self, "PDF Report Created",
+                    f"Professional Vessel Permit Inventory PDF Report successfully generated:\n{file_path}\n\nWould you like to open it now?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    os.startfile(file_path)
+            except Exception as e:
+                QMessageBox.critical(self, "PDF Error", f"Failed to generate PDF: {e}")
 
     # ------------------ SELECTION HELPERS ------------------
     def select_basket_rows(self, criteria: str):
@@ -1284,10 +1356,6 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"Successfully added {count} cells!", 3000)
         else:
             QMessageBox.warning(self, "Invalid Cell Format", "Cell codes not recognized. Please provide 8-character codes (e.g. AU130120).")
-
-    def action_open_text_dialog(self):
-        dlg = CellExtractorDialog(parent=self)
-        dlg.exec()
 
     def action_remove_duplicates(self):
         dups = self.manager.get_stats()[2]
