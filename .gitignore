@@ -16,3 +16,6 @@ app_settings.json
 .vscode/
 .idea/
 *.swp
+
+dist/
+
