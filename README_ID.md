@@ -7,16 +7,21 @@ Aplikasi mandiri Windows (.exe) yang dirancang khusus untuk perwira navigasi kap
 
 ## 🌟 Fitur Utama
 
-1. **Input Cepat & Fleksibel**:
+1. **Sistem Profil Kapal & Database Kumulatif (SQLite)**:
+   - **Profil Multi-Kapal**: Membuat dan berpindah profil kapal dengan mudah (`MV PROSPERA`, `MV PACIFIC GLORY`, dll.).
+   - **Penyimpanan Kumulatif & Riwayat Expiry**: Setiap kali memuat file permit baru (`PERMIT.TXT` / `ENC.PMT`), **data chart lama TIDAK dihapus**, melainkan tetap tersimpan di database lokal (`enc_user_data.db`) dengan status `🔴 Expired`. Sangat aman dan berguna untuk riwayat audit Port State Control (PSC).
+   - **Otomasi Data Kapal**: Informasi profil (`#ShipName`, `#ShipType`, `#ShipEmail`, `#OwnerName`, kontak agen) otomatis mengisi header file pesanan dan laporan PDF.
+2. **Input Cepat & Fleksibel**:
    - **Paste dari Clipboard (`Ctrl+V`)**: Langsung paste daftar kode cell ENC dari teks, email, atau excel.
    - **Buka File CSV / Status Rute ECDIS (`.eusr.csv`)**: Membaca langsung laporan ECDIS seperti `2026-09-01 11-57-56.eusr.csv`, otomatis mengekstrak nama kapal (`#ShipName`) dan kode chart.
-2. **Database Offline 35,277 Chart ADMIRALTY**:
+   - **Cell Extractor**: Ekstraksi cell kode bersih berformat koma (`AU130120, AU130150, ...`) yang langsung disalin ke clipboard untuk komunikasi email cepat.
+3. **Database Offline 35,277 Chart ADMIRALTY**:
    - Terintegrasi langsung dengan database katalog resmi SevenCs / UKHO ADMIRALTY.
    - Judul resmi perairan dan skala navigasi chart langsung terisi otomatis tanpa perlu koneksi internet.
-3. **Pembersihan Duplikat (1-Click Deduplication)**:
+4. **Pembersihan Duplikat (1-Click Deduplication)**:
    - Baris yang sama diberi tanda visual jelas (`⚠️ DUPLICATE (2x)`).
    - Tombol **"🗑️ Remove Duplicates"** menghapus seluruh entri ganda hanya dengan satu klik.
-4. **Pemantau Masa Berlaku Permit (Expiry Monitor)**:
+5. **Pemantau Masa Berlaku Permit (Expiry Monitor)**:
    - Membaca file permit kapal `PERMIT.TXT` maupun `ENC.PMT`.
    - Menghitung sisa hari secara otomatis (*days remaining*).
    - Indikator warna badge:
@@ -24,11 +29,11 @@ Aplikasi mandiri Windows (.exe) yang dirancang khusus untuk perwira navigasi kap
      - 🟠 **Kritis / Segera Habis (1 - 30 hari)**
      - 🟡 **Perhatian (31 - 60 hari)**
      - 🟢 **Aktif (> 60 hari)**
-5. **Seleksi Baris & Pemesanan Ulang Cepat (Renewal)**:
-   - Tombol seleksi cerdas: `Active <= 30 Days`, `Active > 30 Days`, `Not in Permit (New)`, `Duplicates`.
-   - Tombol transfer instan ke keranjang pemesanan (Order Basket).
-6. **Ekspor Format Resmi ADMIRALTY**:
-   - Menghasilkan file teks berformat tab-delimited (`.txt` / `.cwo`) lengkap dengan informasi kapal (`#ShipName`, `#ShipType`, `#ShipEmail`, dll.) yang siap dikirimkan ke distributor / agen chart kapal.
+6. **Ekspor Laporan PDF Profesional Penuh Warna**:
+   - **Order Requisition PDF**: Laporan pemesanan resmi standar IMO SOLAS V/19 & V/27 lengkap dengan distribusi skala chart dan kolom tanda tangan perwira navigasi.
+   - **Permit Compliance Audit PDF**: Laporan kepatuhan permit siap audit PSC yang menyorot chart aktif, kritis, dan historis kadaluwarsa.
+7. **Mode Tema Gelap & Terang (Dark / Light Theme)**:
+   - Tombol toggle instan antara tema Midnight Nautical dan Crisp Daylight.
 
 ---
 

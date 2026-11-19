@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize, QItemSelection, QItemSelectionModel
 from PyQt6.QtGui import QFont, QColor, QBrush, QIcon, QKeySequence, QShortcut
 
-from enc_core import ENCManager, InventoryManager, ENCDatabase, get_db_path, extract_cell_codes
+from enc_core import ENCManager, InventoryManager, ENCDatabase, get_db_path, extract_cell_codes, VesselProfile, ProfileDB
 from pdf_generator import generate_basket_pdf, generate_inventory_pdf
 
 SETTINGS_FILE = "app_settings.json"
@@ -661,43 +661,136 @@ class CellExtractorDialog(QDialog):
             )
             self.accept()
 
-class ShipInfoDialog(QDialog):
-    def __init__(self, ship_info: dict, parent=None):
+class VesselProfileDialog(QDialog):
+    def __init__(self, target=None, parent=None, profile: Optional[VesselProfile] = None):
         super().__init__(parent)
-        self.setWindowTitle("Vessel / Ship Details (#ShipName, etc.)")
-        self.setFixedWidth(480)
-        self.ship_info = ship_info.copy()
+        self.profile = None
+        self.ship_info = {}
         
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
-        
-        self.inputs = {}
-        fields = [
-            ("ShipName", "Vessel Name (ShipName):"),
-            ("ShipType", "Vessel Type (ShipType):"),
-            ("ShipEmail", "Vessel Email (ShipEmail):"),
-            ("ShipPhone", "Vessel Phone (ShipPhone):"),
-            ("OwnerName", "Owner / Manager (OwnerName):"),
-            ("ContactEmail", "Contact Email (ContactEmail):"),
-            ("ContactPhone", "Contact Phone (ContactPhone):"),
-        ]
-        
-        for key, label in fields:
-            edit = QLineEdit(self.ship_info.get(key, ""))
-            self.inputs[key] = edit
-            form.addRow(label, edit)
+        if isinstance(target, VesselProfile):
+            self.profile = target
+        elif isinstance(profile, VesselProfile):
+            self.profile = profile
+        elif isinstance(target, dict):
+            self.ship_info = target.copy()
             
-        layout.addLayout(form)
+        self.is_new = (self.profile is None and not self.ship_info)
         
-        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        btn_box.accepted.connect(self.accept)
+        name_val = ""
+        ship_name_val = ""
+        ship_type_val = "Bulk Carrier"
+        ship_email_val = ""
+        ship_phone_val = ""
+        owner_name_val = ""
+        contact_email_val = ""
+        contact_phone_val = ""
+        
+        if self.profile:
+            name_val = self.profile.name
+            ship_name_val = self.profile.ship_name
+            ship_type_val = self.profile.ship_type
+            ship_email_val = self.profile.ship_email
+            ship_phone_val = self.profile.ship_phone
+            owner_name_val = self.profile.owner_name
+            contact_email_val = self.profile.contact_email
+            contact_phone_val = self.profile.contact_phone
+        elif self.ship_info:
+            name_val = self.ship_info.get("ShipName", "")
+            ship_name_val = self.ship_info.get("ShipName", "")
+            ship_type_val = self.ship_info.get("ShipType", "Bulk Carrier")
+            ship_email_val = self.ship_info.get("ShipEmail", "")
+            ship_phone_val = self.ship_info.get("ShipPhone", "")
+            owner_name_val = self.ship_info.get("OwnerName", "")
+            contact_email_val = self.ship_info.get("ContactEmail", "")
+            contact_phone_val = self.ship_info.get("ContactPhone", "")
+
+        title = "➕ Create New Vessel Profile" if self.is_new else f"✏️ Vessel Profile Particulars: {name_val}"
+        self.setWindowTitle(title)
+        self.setFixedWidth(520)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        info_banner = QLabel(
+            "<b>🚢 Vessel Profile & Database Particulars:</b><br>"
+            "Each vessel profile maintains its own isolated cumulative permit inventory database.<br>"
+            "Particulars entered here automatically populate Order Basket headers & PDF reports."
+        )
+        info_banner.setStyleSheet("color: #38bdf8; background-color: #0f172a; padding: 10px; border-radius: 6px; border: 1px solid #1e293b;")
+        layout.addWidget(info_banner)
+
+        form = QFormLayout()
+        form.setSpacing(8)
+
+        self.input_name = QLineEdit(name_val)
+        self.input_name.setPlaceholderText("e.g. MV PROSPERA, MV PACIFIC GLORY")
+        form.addRow("<b>Profile / Ship Title:</b>", self.input_name)
+
+        self.input_ship_name = QLineEdit(ship_name_val)
+        self.input_ship_name.setPlaceholderText("Official Vessel Name (#ShipName, e.g. PROSPERA)")
+        form.addRow("Vessel Name (#ShipName):", self.input_ship_name)
+
+        self.input_ship_type = QLineEdit(ship_type_val)
+        self.input_ship_type.setPlaceholderText("e.g. Bulk Carrier, Container, Chemical Tanker")
+        form.addRow("Vessel Type (#ShipType):", self.input_ship_type)
+
+        self.input_ship_email = QLineEdit(ship_email_val)
+        self.input_ship_email.setPlaceholderText("e.g. master.prospera@shipping.com")
+        form.addRow("Ship Email (#ShipEmail):", self.input_ship_email)
+
+        self.input_ship_phone = QLineEdit(ship_phone_val)
+        self.input_ship_phone.setPlaceholderText("e.g. +870 773 123 456 (Inmarsat/FBB)")
+        form.addRow("Ship Phone (#ShipPhone):", self.input_ship_phone)
+
+        self.input_owner_name = QLineEdit(owner_name_val)
+        self.input_owner_name.setPlaceholderText("e.g. PT. Pelayaran Samudera Jaya")
+        form.addRow("Owner / Manager (#OwnerName):", self.input_owner_name)
+
+        self.input_contact_email = QLineEdit(contact_email_val)
+        self.input_contact_email.setPlaceholderText("e.g. marine-ops@company.com")
+        form.addRow("Contact Email (#ContactEmail):", self.input_contact_email)
+
+        self.input_contact_phone = QLineEdit(contact_phone_val)
+        self.input_contact_phone.setPlaceholderText("e.g. +62 21 555 1234")
+        form.addRow("Contact Phone (#ContactPhone):", self.input_contact_phone)
+
+        layout.addLayout(form)
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        btn_box.accepted.connect(self.validate_and_save)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
 
-    def get_data(self):
-        for k, edit in self.inputs.items():
-            self.ship_info[k] = edit.text().strip()
-        return self.ship_info
+    def validate_and_save(self):
+        name = self.input_name.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Missing Name", "Profile / Ship Title cannot be empty.")
+            self.input_name.setFocus()
+            return
+        self.accept()
+
+    def get_data(self) -> dict:
+        name = self.input_name.text().strip()
+        ship_name = self.input_ship_name.text().strip() or name
+        return {
+            "name": name,
+            "ship_name": ship_name,
+            "ship_type": self.input_ship_type.text().strip(),
+            "ship_email": self.input_ship_email.text().strip(),
+            "ship_phone": self.input_ship_phone.text().strip(),
+            "owner_name": self.input_owner_name.text().strip(),
+            "contact_email": self.input_contact_email.text().strip(),
+            "contact_phone": self.input_contact_phone.text().strip(),
+            "ShipName": ship_name,
+            "ShipType": self.input_ship_type.text().strip(),
+            "ShipEmail": self.input_ship_email.text().strip(),
+            "ShipPhone": self.input_ship_phone.text().strip(),
+            "OwnerName": self.input_owner_name.text().strip(),
+            "ContactEmail": self.input_contact_email.text().strip(),
+            "ContactPhone": self.input_contact_phone.text().strip()
+        }
+
+ShipInfoDialog = VesselProfileDialog
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -726,8 +819,10 @@ class MainWindow(QMainWindow):
         self.apply_theme()
         self.setup_shortcuts()
         
+        self.update_profile_selector()
         self.auto_load_permit()
         self.refresh_basket_table()
+        self.refresh_inventory_table()
 
     def apply_theme(self):
         if self.theme == "light":
@@ -760,6 +855,7 @@ class MainWindow(QMainWindow):
                 self.inventory.load_permit_file(permit_path)
                 self.manager.update_duplicates_and_inventory()
                 self.update_inventory_ui()
+                self.update_profile_selector()
             except Exception as e:
                 print(f"Failed to auto-load permit: {e}")
 
@@ -786,6 +882,56 @@ class MainWindow(QMainWindow):
         app_header.addWidget(self.btn_theme_toggle)
 
         main_layout.addLayout(app_header)
+
+        # TOP VESSEL PROFILE SELECTOR BAR
+        profile_frame = QFrame()
+        profile_frame.setObjectName("profile_frame")
+        profile_frame.setStyleSheet("""
+            QFrame#profile_frame {
+                background-color: #0f172a;
+                border: 1px solid #1e293b;
+                border-radius: 8px;
+            }
+        """)
+        profile_bar = QHBoxLayout(profile_frame)
+        profile_bar.setContentsMargins(8, 4, 8, 4)
+        profile_bar.setSpacing(8)
+
+        lbl_vessel = QLabel("🚢 Active Vessel Profile:")
+        lbl_vessel.setStyleSheet("font-weight: bold; font-size: 13px; color: #38bdf8;")
+        profile_bar.addWidget(lbl_vessel)
+
+        self.combo_profile = QComboBox()
+        self.combo_profile.setMinimumWidth(320)
+        self.combo_profile.setStyleSheet("font-weight: bold; font-size: 12px; padding: 4px 8px;")
+        self.combo_profile.currentIndexChanged.connect(self.on_profile_selected)
+        profile_bar.addWidget(self.combo_profile)
+
+        self.btn_new_profile = QPushButton("➕ New Profile...")
+        self.btn_new_profile.setObjectName("btn_secondary")
+        self.btn_new_profile.setToolTip("Create a new vessel profile with isolated database inventory")
+        self.btn_new_profile.clicked.connect(self.action_new_profile)
+        profile_bar.addWidget(self.btn_new_profile)
+
+        self.btn_edit_profile = QPushButton("✏️ Edit Particulars")
+        self.btn_edit_profile.setObjectName("btn_secondary")
+        self.btn_edit_profile.setToolTip("Edit active vessel particulars (Name, Owner, Contact details)")
+        self.btn_edit_profile.clicked.connect(self.action_edit_profile)
+        profile_bar.addWidget(self.btn_edit_profile)
+
+        self.btn_delete_profile = QPushButton("🗑️ Delete Profile")
+        self.btn_delete_profile.setObjectName("btn_delete")
+        self.btn_delete_profile.setToolTip("Delete current vessel profile and its database records (at least 1 profile must remain)")
+        self.btn_delete_profile.clicked.connect(self.action_delete_profile)
+        profile_bar.addWidget(self.btn_delete_profile)
+
+        profile_bar.addStretch()
+
+        self.lbl_profile_status = QLabel("")
+        self.lbl_profile_status.setStyleSheet("color: #94a3b8; font-size: 11.5px;")
+        profile_bar.addWidget(self.lbl_profile_status)
+
+        main_layout.addWidget(profile_frame)
 
         # TAB WIDGET
         self.tabs = QTabWidget()
@@ -1230,6 +1376,12 @@ class MainWindow(QMainWindow):
         self.btn_copy_inv.clicked.connect(self.action_copy_inventory)
         action_bar.addWidget(self.btn_copy_inv)
 
+        self.btn_clear_profile_inv = QPushButton("🧹 Clear Inventory")
+        self.btn_clear_profile_inv.setObjectName("btn_delete")
+        self.btn_clear_profile_inv.setToolTip("Clear all cumulative chart records in database for this active profile")
+        self.btn_clear_profile_inv.clicked.connect(self.action_clear_profile_inventory)
+        action_bar.addWidget(self.btn_clear_profile_inv)
+
         action_bar.addStretch()
         layout.addLayout(action_bar)
 
@@ -1343,9 +1495,9 @@ class MainWindow(QMainWindow):
 
         # INVENTORY TABLE
         self.inv_table = QTableWidget()
-        self.inv_table.setColumnCount(7)
+        self.inv_table.setColumnCount(8)
         self.inv_table.setHorizontalHeaderLabels([
-            "#", "Cell ID", "Product Title", "Scale", "Expiry Date", "Days Remaining", "Permit Status"
+            "#", "Cell ID", "Product Title", "Scale", "Expiry Date", "Days Remaining", "Permit Status", "Permit Source"
         ])
         self.inv_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.inv_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -1354,6 +1506,7 @@ class MainWindow(QMainWindow):
         self.inv_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.inv_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self.inv_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        self.inv_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
 
         self.inv_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.inv_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -1381,6 +1534,157 @@ class MainWindow(QMainWindow):
         if 0 <= idx < len(modes):
             self.inv_sort_mode = modes[idx]
             self.refresh_inventory_table()
+
+    # ------------------ PROFILE MANAGEMENT ACTIONS ------------------
+    def update_profile_selector(self):
+        self.combo_profile.blockSignals(True)
+        self.combo_profile.clear()
+
+        profiles = self.inventory.profile_db.get_profiles()
+        active = self.inventory.profile_db.get_active_profile()
+
+        selected_idx = 0
+        today = datetime.date.today()
+        for idx, p in enumerate(profiles):
+            entries = self.inventory.profile_db.load_inventory_entries(p.id)
+            total_cells = len(entries)
+            exp_cells = sum(1 for _, exp_d, _, _ in entries if exp_d < today)
+            act_cells = total_cells - exp_cells
+
+            display_text = f"🚢 {p.name} ({p.ship_type}) — Total: {total_cells} | Active: {act_cells} | Expired: {exp_cells}"
+            self.combo_profile.addItem(display_text, p.id)
+            if p.id == active.id:
+                selected_idx = idx
+
+        self.combo_profile.setCurrentIndex(selected_idx)
+        self.combo_profile.blockSignals(False)
+
+        cur_p = self.inventory.active_profile
+        stats = self.inventory.get_stats()
+        self.lbl_profile_status.setText(
+            f"Vessel: <b style='color:#38bdf8;'>{cur_p.name}</b> | "
+            f"Cumulative DB: <b>{stats['total']}</b> charts "
+            f"(Active: <b style='color:#34d399;'>{stats['active'] + stats['warning']}</b> | "
+            f"Expiring: <b style='color:#fb923c;'>{stats['critical']}</b> | "
+            f"Expired: <b style='color:#f87171;'>{stats['expired']}</b>)"
+        )
+
+    def on_profile_selected(self, index: int):
+        if index < 0:
+            return
+        profile_id = self.combo_profile.currentData()
+        if profile_id and profile_id != self.inventory.active_profile.id:
+            self.inventory.switch_profile(profile_id)
+            self.manager.sync_with_active_profile()
+            self.update_inventory_ui()
+            self.refresh_basket_table()
+            self.update_profile_selector()
+            self.status_bar.showMessage(f"Switched to vessel profile: {self.inventory.active_profile.name}", 3500)
+
+    def action_new_profile(self):
+        dlg = VesselProfileDialog(parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            data = dlg.get_data()
+            try:
+                new_profile = self.inventory.profile_db.create_profile(
+                    name=data["name"],
+                    ship_name=data["ship_name"],
+                    ship_type=data["ship_type"],
+                    ship_email=data["ship_email"],
+                    ship_phone=data["ship_phone"],
+                    owner_name=data["owner_name"],
+                    contact_email=data["contact_email"],
+                    contact_phone=data["contact_phone"]
+                )
+                self.inventory.switch_profile(new_profile.id)
+                self.manager.sync_with_active_profile()
+                self.update_profile_selector()
+                self.update_inventory_ui()
+                self.refresh_basket_table()
+                QMessageBox.information(
+                    self, "Profile Created",
+                    f"New vessel profile <b>{new_profile.name}</b> created and activated!\n\n"
+                    f"• Clean cumulative database started for this vessel.\n"
+                    f"• Order basket headers synchronized.\n"
+                    f"• You can now import PERMIT.TXT or chart baskets for this vessel."
+                )
+            except Exception as e:
+                QMessageBox.critical(self, "Error Creating Profile", f"Could not create profile: {e}")
+
+    def action_edit_profile(self):
+        cur_p = self.inventory.active_profile
+        dlg = VesselProfileDialog(target=cur_p, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            data = dlg.get_data()
+            cur_p.name = data["name"]
+            cur_p.ship_name = data["ship_name"]
+            cur_p.ship_type = data["ship_type"]
+            cur_p.ship_email = data["ship_email"]
+            cur_p.ship_phone = data["ship_phone"]
+            cur_p.owner_name = data["owner_name"]
+            cur_p.contact_email = data["contact_email"]
+            cur_p.contact_phone = data["contact_phone"]
+            try:
+                self.inventory.profile_db.update_profile(cur_p)
+                self.manager.sync_with_active_profile()
+                self.update_profile_selector()
+                self.status_bar.showMessage(f"Profile '{cur_p.name}' updated.", 3000)
+            except Exception as e:
+                QMessageBox.critical(self, "Error Updating Profile", f"Could not update profile: {e}")
+
+    def action_delete_profile(self):
+        cur_p = self.inventory.active_profile
+        profiles = self.inventory.profile_db.get_profiles()
+        if len(profiles) <= 1:
+            QMessageBox.warning(
+                self, "Cannot Delete",
+                "Cannot delete the only remaining vessel profile. At least one profile must exist."
+            )
+            return
+
+        confirm = QMessageBox.question(
+            self, "Confirm Delete Profile",
+            f"Are you sure you want to delete profile '{cur_p.name}'?\n\n"
+            f"All inventory records for this vessel in the database will be PERMANENTLY deleted.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if confirm == QMessageBox.StandardButton.Yes:
+            success = self.inventory.profile_db.delete_profile(cur_p.id)
+            if success:
+                active = self.inventory.profile_db.get_active_profile()
+                self.inventory.switch_profile(active.id)
+                self.manager.sync_with_active_profile()
+                self.update_profile_selector()
+                self.update_inventory_ui()
+                self.refresh_basket_table()
+                QMessageBox.information(
+                    self, "Profile Deleted",
+                    f"Profile '{cur_p.name}' deleted. Switched to active profile '{active.name}'."
+                )
+
+    def action_clear_profile_inventory(self):
+        cur_p = self.inventory.active_profile
+        count = len(self.inventory.items)
+        if count == 0:
+            QMessageBox.information(self, "Inventory Empty", "Inventory is already empty for this profile.")
+            return
+
+        confirm = QMessageBox.question(
+            self, "Confirm Clear Inventory",
+            f"Clear all {count} cumulative chart records from profile '{cur_p.name}' database?\n\n"
+            f"This will reset the inventory history for this vessel.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if confirm == QMessageBox.StandardButton.Yes:
+            self.inventory.profile_db.clear_profile_inventory(cur_p.id)
+            self.inventory.refresh_from_db()
+            self.manager.update_duplicates_and_inventory()
+            self.update_inventory_ui()
+            self.refresh_basket_table()
+            self.update_profile_selector()
+            self.status_bar.showMessage(f"Inventory cleared for '{cur_p.name}'.", 3500)
 
     def setup_shortcuts(self):
         shortcut_paste = QShortcut(QKeySequence.StandardKey.Paste, self)
@@ -1635,17 +1939,26 @@ class MainWindow(QMainWindow):
 
     def load_permit_from_path(self, file_path: str):
         try:
-            count = self.inventory.load_permit_file(file_path)
+            file_count, total_count = self.inventory.load_permit_file(file_path)
             self.settings["last_permit_file"] = file_path
             save_settings(self.settings)
 
             self.manager.update_duplicates_and_inventory()
             self.update_inventory_ui()
             self.refresh_basket_table()
+            self.update_profile_selector()
             
+            stats = self.inventory.get_stats()
+            vessel_name = self.inventory.active_profile.name
             QMessageBox.information(
-                self, "Permit Loaded Successfully",
-                f"Successfully loaded {count} chart permits from:\n{file_path}"
+                self, "Permit Loaded & Merged Into Database",
+                f"Permit file loaded for <b>{vessel_name}</b>:\n{file_path}\n\n"
+                f"• Charts in this permit file: <b>{file_count}</b>\n"
+                f"• Cumulative charts in profile database: <b>{total_count}</b>\n"
+                f"• Active charts (>30d): <b>{stats['active'] + stats['warning']}</b>\n"
+                f"• Expiring soon (1-30d): <b>{stats['critical']}</b>\n"
+                f"• Historical Expired preserved: <b>{stats['expired']}</b>\n\n"
+                f"All previous charts not present in this new permit remain safely saved in the database as Expired for PSC audit and vessel history."
             )
         except Exception as e:
             QMessageBox.critical(self, "Failed to Load Permit", f"Error occurred: {e}")
@@ -1743,7 +2056,24 @@ class MainWindow(QMainWindow):
             it_status.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
             it_status.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
-            row_items = [it_idx, it_cell, it_title, it_scale, it_exp, it_days, it_status]
+            it_source = QTableWidgetItem(item.last_permit_file or "—")
+            it_source.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            it_source.setForeground(QBrush(QColor("#94a3b8") if self.theme != "light" else QColor("#475569")))
+
+            # Color status text based on status level
+            if item.status_level == 0:
+                color_st = QColor("#f87171") if self.theme != "light" else QColor("#b91c1c")
+            elif item.status_level == 1:
+                color_st = QColor("#fb923c") if self.theme != "light" else QColor("#ea580c")
+            elif item.status_level == 2:
+                color_st = QColor("#fde047") if self.theme != "light" else QColor("#ca8a04")
+            else:
+                color_st = QColor("#34d399") if self.theme != "light" else QColor("#16a34a")
+
+            it_status.setForeground(QBrush(color_st))
+            it_days.setForeground(QBrush(color_st))
+
+            row_items = [it_idx, it_cell, it_title, it_scale, it_exp, it_days, it_status, it_source]
 
             for it in row_items:
                 if item.status_level == 0:
@@ -1957,10 +2287,7 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("Order basket text copied to clipboard!", 3500)
 
     def action_edit_ship_info(self):
-        dlg = ShipInfoDialog(self.manager.ship_info, self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.manager.ship_info = dlg.get_data()
-            self.status_bar.showMessage("Vessel details updated.", 3000)
+        self.action_edit_profile()
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
@@ -2137,7 +2464,10 @@ class MainWindow(QMainWindow):
 
             it_inv = QTableWidgetItem(item.inventory_info or "Not in Permit")
             if item.in_inventory:
-                if item.days_left is not None and item.days_left <= 30:
+                if item.days_left is not None and item.days_left <= 0:
+                    it_inv.setForeground(QBrush(QColor("#ef4444") if self.theme != "light" else QColor("#b91c1c")))
+                    it_inv.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                elif item.days_left is not None and item.days_left <= 30:
                     it_inv.setForeground(QBrush(text_crit))
                     it_inv.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
                 else:

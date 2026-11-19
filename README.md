@@ -6,38 +6,46 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D6.svg)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A standalone Windows application for marine navigators, nautical officers, and vessel managers. It streamlines Electronic Navigational Chart (ENC) ordering, eliminates duplicate chart orders, parses ECDIS status reports, and monitors IHO S-63 permit license expirations with automated remaining-days calculations.
+A standalone Windows application for marine navigators, nautical officers, and vessel managers. It streamlines Electronic Navigational Chart (ENC) ordering, eliminates duplicate chart orders, parses ECDIS status reports, manages multi-vessel profiles, preserves cumulative chart history in a local SQLite database, and monitors IHO S-63 permit license expirations with automated remaining-days calculations.
 
 ---
 
 ## 📸 Overview & Key Capabilities
 
-1. **Seamless Input & ECDIS Import**:
-   - **One-Click Clipboard Paste (`Ctrl+V`)**: Instantly parse ENC codes from raw text, comma-separated lists, or spreadsheets.
-   - **Direct ECDIS Report Import**: Automatically parses ECDIS ENC Update Status Reports (`.eusr.csv`), extracting vessel metadata (e.g. `Vessel Name: PROSPERA`) and chart lists.
-   - Supports `.csv`, `.eusr.csv`, `.txt`, `.cwo`, and `.cls` formats.
+1. **Multi-Vessel Profiles & Cumulative Database System (SQLite)**:
+   - **Isolated Vessel Profiles**: Easily create and switch between vessels (`MV PROSPERA`, `MV OCEAN STAR`, etc.).
+   - **Cumulative Permit Retention**: When importing a new `PERMIT.TXT` or `ENC.PMT`, **previous chart records are NEVER wiped**. They are preserved in the vessel's database as `🔴 Expired`, ensuring a full audit trail for Port State Control (PSC) inspections.
+   - **Automatic Basket Particulars**: Profile details (`#ShipName`, `#ShipType`, `#ShipEmail`, `#OwnerName`) automatically populate chart order requisitions and PDF headers.
 
-2. **Offline ADMIRALTY Database (35,277 Charts)**:
+2. **Seamless Input & ECDIS Import**:
+   - **One-Click Clipboard Paste (`Ctrl+V`)**: Instantly parse ENC codes from raw text, comma-separated lists, or spreadsheets.
+   - **Direct ECDIS Report Import**: Automatically parses ECDIS ENC Update Status Reports (`.eusr.csv`), extracting vessel metadata and chart lists.
+   - **Cell Extractor**: Extracts clean comma-separated list of ENC cell codes (`AU130120, AU130150, KR1O0000`) ready for one-click copy to clipboard.
+
+3. **Offline ADMIRALTY Database (35,277 Charts)**:
    - Embedded SQLite database indexed directly from UKHO / SevenCs 7CB catalogues (`AVCS.cat` and `ENC Units.cat`).
    - Automatically populates official chart titles (e.g. `Australia Northern Approaches`) and navigation scales (e.g. `1 : 3500000`) instantly without internet.
 
-3. **Intelligent Deduplication**:
+4. **Intelligent Deduplication & Smart Selection**:
    - Visual highlighting for duplicate chart orders (`⚠️ DUPLICATE (2x)`).
    - One-click duplicate cleanup button to ensure clean, cost-effective chart orders.
+   - Quick selection chips: `All`, `In Permit`, `Active <= 30d`, `Active > 30d`, `Not in Permit (New)`, `Duplicates`.
 
-4. **IHO S-63 Permit Expiry Monitor**:
+5. **IHO S-63 Permit Expiry Monitor**:
    - Loads standard `PERMIT.TXT` and `ENC.PMT` permit files.
    - Dynamic real-time calculation of days remaining until expiration.
-   - Color-coded badges:
+   - Color-coded status badges:
      - 🔴 **Expired (<= 0 days)**
      - 🟠 **Critical / Expiring (1 - 30 days)**
      - 🟡 **Warning (31 - 60 days)**
      - 🟢 **Active (> 60 days)**
 
-5. **Smart Selection & 1-Click Renewal Workflow**:
-   - **Select Rows by Status**: Instantly highlight charts by permit status (`Active <= 30 Days`, `Active > 30 Days`, `Not in Permit (New)`, `Duplicates`).
-   - **Quick Add to Basket**: Transfer expiring charts (`<= 30 days`) or brand new charts straight to the Order Basket in 1 click.
-   - **Exclude Redundant Orders**: Rapidly delete charts that still have `> 30 days` of validity to avoid accidental duplicate billing.
+6. **Professional Publication-Quality PDF Reports**:
+   - **Official Order Requisition Report**: Complete with IMO carriage verification, vessel particulars, chart count, scale distribution, and navigation officer signature lines.
+   - **Permit Compliance Audit Report**: PSC-ready full-color table highlighting active, expiring, and historical expired permits.
+
+7. **Light & Dark Nautical Themes**:
+   - Toggle between a midnight nautical dark theme and a crisp daylight office theme.
 
 6. **Official ADMIRALTY Order Export**:
    - Exports exact tab-delimited format required by ADMIRALTY chart distributors:

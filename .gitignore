@@ -11,6 +11,8 @@ venv/
 build/
 *.spec
 app_settings.json
+enc_user_data.db
+*.db-journal
 
 # IDE
 .vscode/

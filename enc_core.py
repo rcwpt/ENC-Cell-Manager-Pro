@@ -23,7 +23,19 @@ def get_db_path() -> str:
         
     return local_db
 
-IGNORE_CELL_KEYWORDS = {'ENCUNITS', 'PRODUCTT', 'STATUSST', 'SCALEREF', 'STANDARD', 'PORTFOLIO', 'ADMIRALT', 'CATALOGU', 'OVERVIEW', 'APPROACH'}
+def get_user_db_path() -> str:
+    if hasattr(sys, '_MEIPASS'):
+        exe_path = os.path.dirname(sys.executable)
+        return os.path.join(exe_path, 'enc_user_data.db')
+        
+    exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    local_db = os.path.join(exe_dir, 'enc_user_data.db')
+    return local_db
+
+IGNORE_CELL_KEYWORDS = {
+    'ENCUNITS', 'PRODUCTT', 'STATUSST', 'SCALEREF', 'STANDARD',
+    'PORTFOLIO', 'ADMIRALT', 'CATALOGU', 'OVERVIEW', 'APPROACH'
+}
 
 def is_valid_cell_code(code: str) -> bool:
     if not code or len(code) != 8:
@@ -82,6 +94,222 @@ def extract_cell_codes(text: str, unique_only: bool = True, sort_alphabetical: b
 
     return collected
 
+class VesselProfile:
+    def __init__(self, profile_id: int, name: str, ship_name: str = "", ship_type: str = "",
+                 ship_email: str = "", ship_phone: str = "", owner_name: str = "",
+                 contact_email: str = "", contact_phone: str = "", is_active: bool = False,
+                 created_at: str = "", updated_at: str = ""):
+        self.id = profile_id
+        self.name = name
+        self.ship_name = ship_name or name
+        self.ship_type = ship_type or "Commercial Vessel"
+        self.ship_email = ship_email
+        self.ship_phone = ship_phone
+        self.owner_name = owner_name
+        self.contact_email = contact_email
+        self.contact_phone = contact_phone
+        self.is_active = is_active
+        self.created_at = created_at
+        self.updated_at = updated_at
+
+    def to_dict(self) -> Dict[str, str]:
+        return {
+            "ShipName": self.ship_name,
+            "ShipType": self.ship_type,
+            "ShipEmail": self.ship_email,
+            "ShipPhone": self.ship_phone,
+            "OwnerName": self.owner_name,
+            "ContactEmail": self.contact_email,
+            "ContactPhone": self.contact_phone
+        }
+
+class ProfileDB:
+    def __init__(self, db_path: Optional[str] = None):
+        self.db_path = db_path or get_user_db_path()
+        self._init_db()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_db(self):
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS vessel_profiles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                ship_name TEXT,
+                ship_type TEXT,
+                ship_email TEXT,
+                ship_phone TEXT,
+                owner_name TEXT,
+                contact_email TEXT,
+                contact_phone TEXT,
+                created_at TEXT,
+                updated_at TEXT,
+                is_active INTEGER DEFAULT 0
+            )
+            """)
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS profile_inventory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id INTEGER NOT NULL,
+                cell_id TEXT NOT NULL,
+                expiry_date TEXT NOT NULL,
+                last_permit_file TEXT,
+                last_permit_date TEXT,
+                added_at TEXT,
+                updated_at TEXT,
+                UNIQUE(profile_id, cell_id),
+                FOREIGN KEY (profile_id) REFERENCES vessel_profiles(id) ON DELETE CASCADE
+            )
+            """)
+            # Create default profile if none exists
+            cur.execute("SELECT COUNT(*) FROM vessel_profiles")
+            if cur.fetchone()[0] == 0:
+                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cur.execute("""
+                INSERT INTO vessel_profiles (name, ship_name, ship_type, is_active, created_at, updated_at)
+                VALUES (?, ?, ?, 1, ?, ?)
+                """, ("MV PROSPERA", "PROSPERA", "Bulk Carrier", now, now))
+            conn.commit()
+
+    def get_profiles(self) -> List[VesselProfile]:
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM vessel_profiles ORDER BY name ASC")
+            return [VesselProfile(
+                profile_id=r["id"], name=r["name"], ship_name=r["ship_name"],
+                ship_type=r["ship_type"], ship_email=r["ship_email"], ship_phone=r["ship_phone"],
+                owner_name=r["owner_name"], contact_email=r["contact_email"], contact_phone=r["contact_phone"],
+                is_active=bool(r["is_active"]), created_at=r["created_at"], updated_at=r["updated_at"]
+            ) for r in cur.fetchall()]
+
+    def get_active_profile(self) -> VesselProfile:
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM vessel_profiles WHERE is_active = 1 LIMIT 1")
+            r = cur.fetchone()
+            if not r:
+                cur.execute("SELECT * FROM vessel_profiles ORDER BY id ASC LIMIT 1")
+                r = cur.fetchone()
+            if not r:
+                return self.create_profile("MV PROSPERA", "PROSPERA", "Bulk Carrier")
+            return VesselProfile(
+                profile_id=r["id"], name=r["name"], ship_name=r["ship_name"],
+                ship_type=r["ship_type"], ship_email=r["ship_email"], ship_phone=r["ship_phone"],
+                owner_name=r["owner_name"], contact_email=r["contact_email"], contact_phone=r["contact_phone"],
+                is_active=bool(r["is_active"]), created_at=r["created_at"], updated_at=r["updated_at"]
+            )
+
+    def set_active_profile(self, profile_id: int):
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE vessel_profiles SET is_active = 0")
+            cur.execute("UPDATE vessel_profiles SET is_active = 1 WHERE id = ?", (profile_id,))
+            conn.commit()
+
+    def create_profile(self, name: str, ship_name: str = "", ship_type: str = "",
+                       ship_email: str = "", ship_phone: str = "", owner_name: str = "",
+                       contact_email: str = "", contact_phone: str = "") -> VesselProfile:
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE vessel_profiles SET is_active = 0")
+            cur.execute("""
+            INSERT INTO vessel_profiles (name, ship_name, ship_type, ship_email, ship_phone,
+                                         owner_name, contact_email, contact_phone, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            """, (name, ship_name or name, ship_type, ship_email, ship_phone, owner_name, contact_email, contact_phone, now, now))
+            new_id = cur.lastrowid
+            conn.commit()
+            return self.get_active_profile()
+
+    def update_profile(self, profile: VesselProfile):
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+            UPDATE vessel_profiles SET
+                name = ?, ship_name = ?, ship_type = ?, ship_email = ?, ship_phone = ?,
+                owner_name = ?, contact_email = ?, contact_phone = ?, updated_at = ?
+            WHERE id = ?
+            """, (profile.name, profile.ship_name, profile.ship_type, profile.ship_email,
+                  profile.ship_phone, profile.owner_name, profile.contact_email,
+                  profile.contact_phone, now, profile.id))
+            conn.commit()
+
+    def delete_profile(self, profile_id: int) -> bool:
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM vessel_profiles")
+            if cur.fetchone()[0] <= 1:
+                return False # Cannot delete the only profile
+            cur.execute("DELETE FROM vessel_profiles WHERE id = ?", (profile_id,))
+            # Ensure an active profile remains
+            cur.execute("SELECT id FROM vessel_profiles WHERE is_active = 1")
+            if not cur.fetchone():
+                cur.execute("UPDATE vessel_profiles SET is_active = 1 WHERE id = (SELECT id FROM vessel_profiles LIMIT 1)")
+            conn.commit()
+            return True
+
+    def save_permit_entries(self, profile_id: int, entries: List[Tuple[str, datetime.date]],
+                            file_name: str, permit_date: str) -> Tuple[int, int]:
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        new_cnt = 0
+        upd_cnt = 0
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            for cid, exp_d in entries:
+                exp_str = exp_d.strftime("%Y-%m-%d")
+                cur.execute("SELECT expiry_date FROM profile_inventory WHERE profile_id=? AND cell_id=?", (profile_id, cid))
+                row = cur.fetchone()
+                if row:
+                    # Keep latest valid expiry date
+                    cur.execute("""
+                    UPDATE profile_inventory SET
+                        expiry_date = CASE WHEN ? >= expiry_date THEN ? ELSE expiry_date END,
+                        last_permit_file = ?,
+                        last_permit_date = ?,
+                        updated_at = ?
+                    WHERE profile_id=? AND cell_id=?
+                    """, (exp_str, exp_str, file_name, permit_date, now, profile_id, cid))
+                    upd_cnt += 1
+                else:
+                    cur.execute("""
+                    INSERT INTO profile_inventory (profile_id, cell_id, expiry_date, last_permit_file, last_permit_date, added_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (profile_id, cid, exp_str, file_name, permit_date, now, now))
+                    new_cnt += 1
+            conn.commit()
+        return (new_cnt, upd_cnt)
+
+    def load_inventory_entries(self, profile_id: int) -> List[Tuple[str, datetime.date, str, str]]:
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+            SELECT cell_id, expiry_date, last_permit_file, last_permit_date
+            FROM profile_inventory
+            WHERE profile_id = ?
+            ORDER BY expiry_date ASC, cell_id ASC
+            """, (profile_id,))
+            res = []
+            for r in cur.fetchall():
+                try:
+                    exp_d = datetime.datetime.strptime(r["expiry_date"], "%Y-%m-%d").date()
+                    res.append((r["cell_id"], exp_d, r["last_permit_file"] or "", r["last_permit_date"] or ""))
+                except Exception:
+                    pass
+            return res
+
+    def clear_profile_inventory(self, profile_id: int):
+        with self._get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM profile_inventory WHERE profile_id = ?", (profile_id,))
+            conn.commit()
+
 class ENCDatabase:
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or get_db_path()
@@ -126,7 +354,8 @@ class ENCDatabase:
         return res
 
 class PermitItem:
-    def __init__(self, cell_id: str, expiry_date: datetime.date, today: Optional[datetime.date] = None, title: str = "", scale: str = ""):
+    def __init__(self, cell_id: str, expiry_date: datetime.date, today: Optional[datetime.date] = None,
+                 title: str = "", scale: str = "", last_permit_file: str = ""):
         self.cell_id = cell_id.strip().upper()
         self.expiry_date = expiry_date
         self.expiry_str = expiry_date.strftime("%Y-%m-%d")
@@ -135,6 +364,7 @@ class PermitItem:
         self.days_left = (expiry_date - ref_today).days
         self.title = title
         self.scale = scale
+        self.last_permit_file = last_permit_file
         
         # 0 = Expired, 1 = Critical (<=30), 2 = Warning (31-60), 3 = Active (>60)
         if self.days_left < 0:
@@ -154,23 +384,54 @@ class PermitItem:
             self.status_label = f"🟢 {self.days_left}d left (Active)"
 
 class InventoryManager:
-    def __init__(self, db: Optional[ENCDatabase] = None):
+    def __init__(self, db: Optional[ENCDatabase] = None, profile_db: Optional[ProfileDB] = None):
         self.db = db or ENCDatabase()
+        self.profile_db = profile_db or ProfileDB()
+        self.active_profile = self.profile_db.get_active_profile()
         self.items: List[PermitItem] = []
         self.permit_date: str = ""
         self.file_path: str = ""
         self.permit_dict: Dict[str, PermitItem] = {}
+        self.refresh_from_db()
 
-    def load_permit_file(self, file_path: str, today: Optional[datetime.date] = None) -> int:
+    def refresh_from_db(self, today: Optional[datetime.date] = None):
+        ref_today = today or datetime.date.today()
+        raw_db_entries = self.profile_db.load_inventory_entries(self.active_profile.id)
+        
+        cell_ids = [c for c, _, _, _ in raw_db_entries]
+        meta = self.db.lookup_batch(cell_ids)
+        
+        self.items.clear()
+        self.permit_dict.clear()
+        
+        for cid, exp_d, last_f, last_d in raw_db_entries:
+            m = meta.get(cid, {})
+            title = m.get("title", f"ENC Cell {cid}")
+            scale = m.get("scale", "1 : 180000")
+            item = PermitItem(cid, exp_d, ref_today, title, scale, last_permit_file=last_f)
+            self.items.append(item)
+            self.permit_dict[cid] = item
+
+        self.items.sort(key=lambda x: (x.days_left, x.cell_id))
+
+    def switch_profile(self, profile_id: int, today: Optional[datetime.date] = None):
+        self.profile_db.set_active_profile(profile_id)
+        self.active_profile = self.profile_db.get_active_profile()
+        self.file_path = ""
+        self.permit_date = ""
+        self.refresh_from_db(today)
+
+    def load_permit_file(self, file_path: str, today: Optional[datetime.date] = None) -> Tuple[int, int]:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Permit file not found: {file_path}")
         
         self.file_path = file_path
+        filename = os.path.basename(file_path)
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
-        return self.load_permit_text(content, today)
+        return self.load_permit_text(content, today, filename=filename)
 
-    def load_permit_text(self, text: str, today: Optional[datetime.date] = None) -> int:
+    def load_permit_text(self, text: str, today: Optional[datetime.date] = None, filename: str = "") -> Tuple[int, int]:
         ref_today = today or datetime.date.today()
         lines = text.strip().splitlines()
         
@@ -193,7 +454,7 @@ class InventoryManager:
             if len(line) >= 16:
                 cell_id = line[:8].upper()
                 date_str = line[8:16]
-                if cell_id.isalnum() and date_str.isdigit() and len(date_str) == 8:
+                if is_valid_cell_code(cell_id) and date_str.isdigit() and len(date_str) == 8:
                     try:
                         exp_d = datetime.datetime.strptime(date_str, "%Y%m%d").date()
                         raw_entries.append((cell_id, exp_d))
@@ -201,25 +462,23 @@ class InventoryManager:
                         pass
 
         if not raw_entries:
-            return 0
+            return (0, len(self.items))
 
-        cell_ids = [c for c, d in raw_entries]
-        meta = self.db.lookup_batch(cell_ids)
-        
-        self.items.clear()
-        self.permit_dict.clear()
+        file_label = filename or "PERMIT.TXT"
         self.permit_date = permit_date_str
         
-        for cid, exp_d in raw_entries:
-            m = meta.get(cid, {})
-            title = m.get("title", f"ENC Cell {cid}")
-            scale = m.get("scale", "1 : 180000")
-            item = PermitItem(cid, exp_d, ref_today, title, scale)
-            self.items.append(item)
-            self.permit_dict[cid] = item
+        # CUMULATIVE SAVE TO DATABASE: Old charts are preserved!
+        new_cnt, upd_cnt = self.profile_db.save_permit_entries(
+            self.active_profile.id, raw_entries, file_label, permit_date_str
+        )
+        
+        # Reload cumulative database inventory
+        self.refresh_from_db(ref_today)
+        return (len(raw_entries), len(self.items))
 
-        self.items.sort(key=lambda x: (x.days_left, x.cell_id))
-        return len(self.items)
+    def clear_current_inventory(self):
+        self.profile_db.clear_profile_inventory(self.active_profile.id)
+        self.refresh_from_db()
 
     def get_stats(self) -> Dict[str, int]:
         total = len(self.items)
@@ -244,14 +503,17 @@ class InventoryManager:
     def get_cells_active_more_than(self, days: int = 30) -> List[str]:
         return [it.cell_id for it in self.items if it.days_left > days]
 
+    def get_cells_expired(self) -> List[str]:
+        return [it.cell_id for it in self.items if it.days_left <= 0]
+
     def get_expiring_cells(self, max_days: int = 30) -> List[str]:
         return self.get_cells_active_less_than(max_days)
 
     def export_csv(self) -> str:
-        rows = ["Cell ID,Product Title,Scale,Expiry Date,Days Left,Status"]
+        rows = ["Cell ID,Product Title,Scale,Expiry Date,Days Left,Status,Last Permit File"]
         for it in self.items:
             clean_title = it.title.replace('"', '""')
-            rows.append(f'"{it.cell_id}","{clean_title}","{it.scale}","{it.expiry_str}",{it.days_left},"{it.status_label}"')
+            rows.append(f'"{it.cell_id}","{clean_title}","{it.scale}","{it.expiry_str}",{it.days_left},"{it.status_label}","{it.last_permit_file}"')
         return "\n".join(rows) + "\n"
 
 class CellItem:
@@ -275,15 +537,11 @@ class ENCManager:
         self.db = db or ENCDatabase()
         self.inventory = inventory or InventoryManager(self.db)
         self.items: List[CellItem] = []
-        self.ship_info: Dict[str, str] = {
-            "ShipName": "",
-            "ShipType": "",
-            "ShipEmail": "",
-            "ShipPhone": "",
-            "OwnerName": "",
-            "ContactEmail": "",
-            "ContactPhone": ""
-        }
+        self.ship_info: Dict[str, str] = self.inventory.active_profile.to_dict()
+
+    def sync_with_active_profile(self):
+        self.ship_info = self.inventory.active_profile.to_dict()
+        self.update_duplicates_and_inventory()
 
     def update_duplicates_and_inventory(self):
         counts = {}
@@ -301,7 +559,12 @@ class ENCManager:
             if p_item:
                 item.in_inventory = True
                 item.days_left = p_item.days_left
-                item.inventory_info = f"Permit: Exp {p_item.expiry_str} ({p_item.days_left}d left)"
+                if p_item.days_left < 0:
+                    item.inventory_info = f"Permit: Exp {p_item.expiry_str} (EXPIRED: {abs(p_item.days_left)}d ago)"
+                elif p_item.days_left == 0:
+                    item.inventory_info = f"Permit: Exp {p_item.expiry_str} (EXPIRES TODAY)"
+                else:
+                    item.inventory_info = f"Permit: Exp {p_item.expiry_str} ({p_item.days_left}d left)"
             else:
                 item.in_inventory = False
                 item.days_left = None
