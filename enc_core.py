@@ -23,6 +23,15 @@ def get_db_path() -> str:
         
     return local_db
 
+IGNORE_CELL_KEYWORDS = {'ENCUNITS', 'PRODUCTT', 'STATUSST', 'SCALEREF', 'STANDARD', 'PORTFOLIO', 'ADMIRALT', 'CATALOGU', 'OVERVIEW', 'APPROACH'}
+
+def is_valid_cell_code(code: str) -> bool:
+    if not code or len(code) != 8:
+        return False
+    if code.upper() in IGNORE_CELL_KEYWORDS:
+        return False
+    return code.isalnum()
+
 def extract_cell_codes(text: str, unique_only: bool = True, sort_alphabetical: bool = True) -> List[str]:
     if not text:
         return []
@@ -38,7 +47,7 @@ def extract_cell_codes(text: str, unique_only: bool = True, sort_alphabetical: b
                 continue
             row_lower = [c.strip().lower() for c in row]
             if not header_found:
-                candidates = ['name', 'cell', 'cell id', 'cellid', 'chart', 'product number']
+                candidates = ['product', 'product number', 'name', 'cell', 'cell id', 'cellid', 'chart', 'code', 'cell_id']
                 for cand in candidates:
                     if cand in row_lower:
                         header_found = True
@@ -47,7 +56,7 @@ def extract_cell_codes(text: str, unique_only: bool = True, sort_alphabetical: b
                 continue
             if header_found and name_idx >= 0 and len(row) > name_idx:
                 val = row[name_idx].strip().upper()
-                if len(val) == 8 and val.isalnum():
+                if is_valid_cell_code(val):
                     collected.append(val)
     except Exception:
         pass
@@ -56,8 +65,8 @@ def extract_cell_codes(text: str, unique_only: bool = True, sort_alphabetical: b
         found = re.findall(r'\b[A-Za-z0-9]{8}\b', text)
         if not found:
             tokens = re.split(r'[,;\s\r\n\t]+', text)
-            found = [t.strip().upper() for t in tokens if len(t.strip()) == 8 and t.strip().isalnum()]
-        collected = [c.upper() for c in found]
+            found = [t.strip().upper() for t in tokens if is_valid_cell_code(t.strip())]
+        collected = [c.upper() for c in found if is_valid_cell_code(c)]
 
     if unique_only:
         seen = set()
@@ -310,28 +319,67 @@ class ENCManager:
                 self.ship_info["ShipName"] = v_val
 
         lines = text.strip().splitlines()
-        is_basket = any(line.startswith("Product Type\t") or line.startswith("ENC Units\t") for line in lines)
-        
         added_count = 0
-        
-        if is_basket:
-            for line in lines:
-                parts = line.split("\t")
-                if len(parts) >= 4 and parts[0] == "ENC Units":
-                    ptype = parts[0]
-                    pnum = parts[1].strip().upper()
-                    ptitle = parts[2].strip()
-                    pscale = parts[3].strip()
-                    pstat = parts[4].strip() if len(parts) > 4 else ""
-                    self.items.append(CellItem(ptype, pnum, ptitle, pscale, pstat))
-                    added_count += 1
-                elif line.startswith("#"):
-                    m = re.match(r"^#([A-Za-z]+)\|(.*)$", line.strip())
-                    if m:
-                        key, val = m.group(1), m.group(2)
-                        if key in self.ship_info:
-                            self.ship_info[key] = val
+        structured_items = []
+
+        for line in lines:
+            line_clean = line.strip()
+            if not line_clean:
+                continue
+            if line_clean.startswith("#"):
+                m = re.match(r"^#([A-Za-z]+)\|(.*)$", line_clean)
+                if m:
+                    key, val = m.group(1), m.group(2)
+                    if key in self.ship_info:
+                        self.ship_info[key] = val
+                continue
+
+            line_lower = line_clean.lower()
+            if any(h in line_lower for h in ['product type', 'scale/usage', 'filename:']):
+                continue
+
+            # Split by tabs, 2+ spaces, or pipes
+            parts = [p.strip() for p in re.split(r'\t+|(?<=\S)\s{2,}(?=\S)|\|', line_clean) if p.strip()]
+            cell_found = None
+            ptype = 'ENC Units'
+            ptitle = ''
+            pscale = ''
+            pstat = ''
+
+            for i, p in enumerate(parts):
+                cand = re.sub(r'[^A-Za-z0-9]', '', p).upper()
+                if is_valid_cell_code(cand):
+                    cell_found = cand
+                    if i > 0:
+                        raw_type = re.sub(r'^[+\-\s]+', '', parts[0]).strip()
+                        if raw_type:
+                            ptype = raw_type
+                    if len(parts) > i + 1:
+                        ptitle = parts[i + 1].strip()
+                    if len(parts) > i + 2:
+                        pscale = parts[i + 2].strip()
+                    if len(parts) > i + 3:
+                        pstat = parts[i + 3].strip()
+                    break
+
+            if cell_found:
+                structured_items.append((ptype, cell_found, ptitle, pscale, pstat))
+
+        if structured_items:
+            # Batch metadata lookup for cells needing title or scale
+            missing_ids = [c for _, c, t, s, _ in structured_items if not t or '...' in t or len(t) < 5 or not s or ':' not in s]
+            meta = self.db.lookup_batch(missing_ids) if missing_ids else {}
+
+            for ptype, cid, ptitle, pscale, pstat in structured_items:
+                m = meta.get(cid, {})
+                if not ptitle or '...' in ptitle or len(ptitle) < 5:
+                    ptitle = m.get('title', ptitle or f'ENC Cell {cid}')
+                if not pscale or ':' not in pscale:
+                    pscale = m.get('scale', pscale or '1 : 180000')
+                self.items.append(CellItem(ptype, cid, ptitle, pscale, pstat))
+                added_count += 1
         else:
+            # Fallback to general cell code extraction
             found_cells = extract_cell_codes(text, unique_only=False, sort_alphabetical=False)
             if found_cells:
                 meta = self.db.lookup_batch(found_cells)
