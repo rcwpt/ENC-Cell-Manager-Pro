@@ -412,3 +412,21 @@ class ENCManager:
         unique = len(set(item.product_number for item in self.items))
         dups = total - unique
         return (total, unique, dups)
+
+    def get_breakdown(self) -> Dict[str, int]:
+        total = len(self.items)
+        unique = len(set(item.product_number for item in self.items))
+        dups = total - unique
+        in_inv = sum(1 for it in self.items if it.in_inventory)
+        crit = sum(1 for it in self.items if it.in_inventory and it.days_left is not None and it.days_left <= 30)
+        act = sum(1 for it in self.items if it.in_inventory and it.days_left is not None and it.days_left > 30)
+        new_cells = sum(1 for it in self.items if not it.in_inventory)
+        return {
+            "total": total,
+            "unique": unique,
+            "dups": dups,
+            "in_inventory": in_inv,
+            "critical": crit,
+            "active": act,
+            "new": new_cells
+        }
